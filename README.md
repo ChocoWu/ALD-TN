@@ -33,4 +33,10 @@ More details refer to code.
 ## bert
 
 ### data preparing
-If we 
+We need to get dictionary file firstly, please refer to 'transformer'
+### Training
+```angular2html
+cd bert 
+python run_task6.py
+
+```
