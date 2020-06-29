@@ -38,5 +38,4 @@ We need to get dictionary file firstly, please refer to 'transformer'
 ```angular2html
 cd bert 
 python run_task6.py
-
 ```
