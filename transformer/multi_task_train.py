@@ -443,7 +443,7 @@ if __name__ == '__main__':
     share_enc = Encoder(opt.embedding_output, opt.hidden_dim, opt.enc_layers,
                         opt.enc_heads, opt.enc_pf_dim, opt.enc_dropout, device)
     norm_enc = Encoder(opt.embedding_output, opt.hidden_dim, opt.enc_layers,
-                        opt.enc_heads, opt.enc_pf_dim, opt.enc_dropout, device)
+                       opt.enc_heads, opt.enc_pf_dim, opt.enc_dropout, device)
     class_enc = Encoder(opt.embedding_output, opt.hidden_dim, opt.enc_layers,
                         opt.enc_heads, opt.enc_pf_dim, opt.enc_dropout, device)
 
@@ -469,9 +469,11 @@ if __name__ == '__main__':
     adv_criterion = nn.CrossEntropyLoss()
 
     best_valid_loss = float('inf')
-    model.load_state_dict(torch.load('model.pt'))
+    best_class_loss = float('inf')
     best_fb_f1 = 0.0
     best_tw_f1 = 0.0
+
+    # train the model
     for round in range(opt.round1):
         for epoch in range(opt.norm_epochs):
             start_time = time.time()
@@ -480,10 +482,6 @@ if __name__ == '__main__':
                                     opt.clip, device, opt.adv_weight, opt.diff_weight, 'norm', opt.model_type, opt.is_adv_loss)
             norm_valid_loss, pred_label, gold_label, src_label, _, _ = evaluate(model, norm_dev_loader, optimizer, norm_criterion, adv_criterion, class_criterion, device,
                                                                opt.adv_weight, opt.diff_weight, 'norm', opt.model_type, opt.is_adv_loss)
-
-            end_time = time.time()
-
-            epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
             if norm_valid_loss < best_valid_loss:
                 best_valid_loss = norm_valid_loss
@@ -506,21 +504,9 @@ if __name__ == '__main__':
                                                                 opt.model_type, opt.is_adv_loss)
             logger.info(
                 f'\tClass  Val. Loss: {class_valid_loss:.3f} |  Val. accuracy: {accuracy_score(gold_label, pred_label):.4f}')
-            class_fb_loss, pred_label, gold_label, _, share_attn, pri_attn = evaluate(model, class_fb_loader,
-                                                                                            optimizer, norm_criterion,
-                                                                                            adv_criterion,
-                                                                                            class_criterion, device, opt.adv_weight,
-                                                                                            opt.diff_weight,
-                                                                                            'class', opt.model_type, opt.is_adv_loss)
-            logger.info(f'Facebook result:\n, {classification_report(gold_label, pred_label, digits=4)}')
-
-            class_tw_loss, pred_label, gold_label, _, share_attn, pri_attn = evaluate(model, class_tw_loader,
-                                                                                      optimizer, norm_criterion,
-                                                                                      adv_criterion,
-                                                                                      class_criterion, device, opt.adv_weight,
-                                                                                      opt.diff_weight,
-                                                                                      'class', opt.model_type, opt.is_adv_loss)
-            logger.info(f'Twitter result:\n, {classification_report(gold_label, pred_label, digits=4)}')
+            if class_valid_loss < best_class_loss:
+                best_class_loss = class_valid_loss
+                torch.save(model.state_dict(), 'model.pt')
 
     logger.info(f'Round 2 is starting ......')
     for round in range(opt.round2):
@@ -548,16 +534,43 @@ if __name__ == '__main__':
                                                             opt.diff_weight, 'class', opt.model_type, opt.is_adv_loss)
         logger.info(
             f'\tClass  Val. Loss: {class_valid_loss:.3f} |  Val. accuracy: {accuracy_score(gold_label, pred_label):.4f}')
-        class_fb_loss, pred_label, gold_label, _, share_attn, pri_attn = evaluate(model, class_fb_loader, optimizer, norm_criterion,
-                                                               adv_criterion,
-                                                               class_criterion, device, opt.adv_weight,
-                                                               opt.diff_weight, 'class', opt.model_type, opt.is_adv_loss)
-        logger.info(f'Facebook result:\n, {classification_report(gold_label, pred_label, digits=4)}')
-        class_tw_loss, pred_label, gold_label, _, share_attn, pri_attn = evaluate(model, class_tw_loader, optimizer, norm_criterion,
-                                                               adv_criterion,
-                                                               class_criterion, device, opt.adv_weight,
-                                                               opt.diff_weight, 'class', opt.model_type, opt.is_adv_loss)
 
-        epoch_mins, epoch_secs = epoch_time(end_time, time.time())
-        logger.info(f'Twitter result:\n, {classification_report(gold_label, pred_label, digits=4)}')
+        if class_valid_loss < best_class_loss:
+            best_class_loss = class_valid_loss
+            torch.save(model.state_dict(), 'model.pt')
 
+    # """ Test """
+
+    # load model
+    model.load_state_dict(torch.load('model.pt'))
+
+    # test data
+    norm_valid_loss, pred_label, gold_label, src_label, _, _ = evaluate(model, norm_dev_loader, optimizer,
+                                                                        norm_criterion, adv_criterion, class_criterion,
+                                                                        device,
+                                                                        opt.adv_weight, opt.diff_weight, 'norm',
+                                                                        opt.model_type, opt.is_adv_loss)
+    acc = accuracy(gold_label, pred_label, output_vocab.word_to_id('<eos>'), opt.max_word)
+    p, r, f1 = evaluate_metrics(src_label, gold_label, pred_label, output_vocab.word_to_id('<eos>'),
+                                input_vocab, output_vocab)
+
+    logger.info(f'\tNorm  Val. Loss: {norm_valid_loss:.3f} |  Val. PPL: {math.exp(norm_valid_loss):7.3f}')
+    logger.info(f'\t Val. Loss: {norm_valid_loss:.3f} |  Val. acc: {acc:.4f}')
+    logger.info(f'\tNorm Precise score: {p:.4f} | Recall: {r:.4f} | F1: {f1:.4f}')
+
+    class_fb_loss, pred_label, gold_label, _, share_attn, pri_attn = evaluate(model, class_fb_loader, optimizer,
+                                                                              norm_criterion,
+                                                                              adv_criterion,
+                                                                              class_criterion, device, opt.adv_weight,
+                                                                              opt.diff_weight, 'class', opt.model_type,
+                                                                              opt.is_adv_loss)
+    logger.info(f'Facebook result:\n, {classification_report(gold_label, pred_label, digits=4)}')
+    class_tw_loss, pred_label, gold_label, _, share_attn, pri_attn = evaluate(model, class_tw_loader, optimizer,
+                                                                              norm_criterion,
+                                                                              adv_criterion,
+                                                                              class_criterion, device, opt.adv_weight,
+                                                                              opt.diff_weight, 'class', opt.model_type,
+                                                                              opt.is_adv_loss)
+
+    epoch_mins, epoch_secs = epoch_time(end_time, time.time())
+    logger.info(f'Twitter result:\n, {classification_report(gold_label, pred_label, digits=4)}')
