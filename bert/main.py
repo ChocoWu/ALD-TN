@@ -54,48 +54,49 @@ def main(config, model_times, label_list):
 
     num_labels = len(label_list)
 
+    print('start loading vocabulary......')
+    DIC = './data/agr-en/dict.pt'
+    if os.path.exists(config.tgt_vocab_path):
+        output_vocab = load_from_pickle(config.tgt_vocab_path)
+        # input_vocab = load_from_pickle(config.src_vocab_path)
+    else:
+        input_vocab, output_vocab = build_src_tgt_vocab(DIC, config.src_vocab_path, config.tgt_vocab_path, label_list)
+
+    if os.path.exists(config.tgt_embedding_path):
+        trg_embedding = load_from_pickle(config.tgt_embedding_path)
+        trg_embedding = torch.FloatTensor(trg_embedding)
+    else:
+        trg_embedding = load_embedding(config.pretrain_file, config.w_embedding_size, output_vocab)
+        save_to_pickle(config.tgt_embedding_path, trg_embedding)
+        trg_embedding = torch.FloatTensor(trg_embedding)
+    TRG_PAD_IDX = output_vocab.word2id['<pad>']
+
+    norm_train, norm_train_examples_len = load_data(
+        config.data_dir, tokenizer, config.max_seq_length, config.train_batch_size, "train", label_list,
+        filename = 'dict.csv', trg_vocab = output_vocab)
+    norm_dev, _ = load_data(
+        config.data_dir, tokenizer, config.max_seq_length, config.dev_batch_size, "dev", label_list,
+        filename = 'test_lexnorm2015.csv', trg_vocab = output_vocab)
+
+    class_train, class_train_examples_len = load_data(
+        config.data_dir, tokenizer, config.max_seq_length, config.class_batch_size, "train", label_list,
+        filename = 'agr_en_train.csv')
+    class_dev, _ = load_data(
+        config.data_dir, tokenizer, config.max_seq_length, config.class_batch_size, "dev", label_list,
+        filename = 'agr_en_dev.csv')
+    class_fb_test, _ = load_data(
+        config.data_dir, tokenizer, config.max_seq_length, config.class_batch_size, "test", label_list,
+        filename = 'agr_en_fb_test.csv')
+    class_tw_test, _ = load_data(
+        config.data_dir, tokenizer, config.max_seq_length, config.class_batch_size, "test", label_list,
+        filename = 'agr_en_tw_test.csv')
+
+    num_train_optimization_steps = int(
+        norm_train_examples_len / config.train_batch_size / config.gradient_accumulation_steps) * config.num_train_epochs + int(
+        class_train_examples_len / config.class_batch_size / config.gradient_accumulation_steps) * config.class_epochs
+
     # Train and dev
     if config.do_train:
-
-        print('start loading vocabulary......')
-        DIC = './data/agr-en/dict.pt'
-        if os.path.exists(config.tgt_vocab_path):
-            output_vocab = load_from_pickle(config.tgt_vocab_path)
-            # input_vocab = load_from_pickle(config.src_vocab_path)
-        else:
-            input_vocab, output_vocab = build_src_tgt_vocab(DIC, config.src_vocab_path, config.tgt_vocab_path, label_list)
-
-        if os.path.exists(config.tgt_embedding_path):
-            trg_embedding = load_from_pickle(config.tgt_embedding_path)
-            trg_embedding = torch.FloatTensor(trg_embedding)
-        else:
-            trg_embedding = load_embedding(config.pretrain_file, config.w_embedding_size, output_vocab)
-            save_to_pickle(config.tgt_embedding_path, trg_embedding)
-            trg_embedding = torch.FloatTensor(trg_embedding)
-        TRG_PAD_IDX = output_vocab.word2id['<pad>']
-
-        norm_train, norm_train_examples_len = load_data(
-            config.data_dir, tokenizer, config.max_seq_length, config.train_batch_size, "train", label_list,
-            filename='dict.csv', trg_vocab=output_vocab)
-        norm_dev, _ = load_data(
-            config.data_dir, tokenizer, config.max_seq_length, config.dev_batch_size, "dev", label_list,
-            filename='test_lexnorm2015.csv', trg_vocab=output_vocab)
-
-        class_train, class_train_examples_len = load_data(
-            config.data_dir, tokenizer, config.max_seq_length, config.class_batch_size, "train", label_list,
-            filename='agr_en_train.csv')
-        class_dev, _ = load_data(
-            config.data_dir, tokenizer, config.max_seq_length, config.class_batch_size, "dev", label_list,
-            filename='agr_en_dev.csv')
-        class_fb_test, _ = load_data(
-            config.data_dir, tokenizer, config.max_seq_length, config.class_batch_size, "test", label_list,
-            filename='agr_en_fb_test.csv')
-        class_tw_test, _ = load_data(
-            config.data_dir, tokenizer, config.max_seq_length, config.class_batch_size, "test", label_list,
-            filename='agr_en_tw_test.csv')
-
-        num_train_optimization_steps = int(
-            norm_train_examples_len / config.train_batch_size / config.gradient_accumulation_steps) * config.num_train_epochs + int(class_train_examples_len / config.class_batch_size / config.gradient_accumulation_steps) * config.class_epochs
 
         # 模型准备
         print("model name is {}".format(config.model_name))
@@ -134,6 +135,8 @@ def main(config, model_times, label_list):
         """ 损失函数准备 """
         criterion = nn.CrossEntropyLoss()
         criterion = criterion.to(device)
+        best_norm_f1 = 0.0
+        best_class_acc = 0.0
         for round in range(config.round1):
             for i in range(10):
                 train(1, n_gpu, model, norm_train, optimizer,
@@ -147,6 +150,11 @@ def main(config, model_times, label_list):
                 p, r, f1 = evaluate_metrics(src_label, gold_label, pred_label, output_vocab.word2id['<pad>'], output_vocab, tokenizer)
 
                 print(f'\tNorm Precise score: {p:.4f} | Recall: {r:.4f} | F1: {f1:.4f}')
+                if best_norm_f1 < f1:
+                    model_to_save = model.module if hasattr(model, 'module') else model
+                    torch.save(model_to_save.state_dict(), output_model_file)
+                    with open(output_config_file, 'w') as f:
+                        f.write(model_to_save.config.to_json_string())
             for i in range(7):
                 train(1, n_gpu, model, class_train, optimizer,
                       criterion, config.gradient_accumulation_steps, device, label_list,
@@ -154,9 +162,15 @@ def main(config, model_times, label_list):
                 class_valid_loss, pred_label, gold_label, _ = evaluate(model, class_dev, criterion, device,
                                                                        label_list, data_type='class', adv_weight=0.05,
                                                                        diff_weight=0.01)
-                print(
-                    f'\tClass  Val. Loss: {class_valid_loss:.3f} |  Val. accuracy: {accuracy_score(gold_label, pred_label):.4f}')
-                #
+                class_valid_acc = accuracy_score(gold_label, pred_label)
+                print(f'\tClass  Val. Loss: {class_valid_loss:.3f} |  Val. accuracy: {class_valid_acc:.4f}')
+
+                if best_class_acc < class_valid_acc:
+                    model_to_save = model.module if hasattr(model, 'module') else model
+                    torch.save(model_to_save.state_dict(), output_model_file)
+                    with open(output_config_file, 'w') as f:
+                        f.write(model_to_save.config.to_json_string())
+
                 class_valid_loss, pred_label, gold_label, _ = evaluate(model, class_fb_test, criterion, device,
                                                                        label_list, data_type='class', adv_weight=0.05,
                                                                        diff_weight=0.01)
@@ -166,39 +180,39 @@ def main(config, model_times, label_list):
                                                                        label_list, data_type='class', adv_weight=0.05,
                                                                        diff_weight=0.01)
                 print(f'Twitter result:\n, {classification_report(gold_label, pred_label, digits=4)}')
-    #
+
     # """ Test """
-    #
-    # # test 数据
-    # test_dataloader, _ = load_data(
-    #     config.data_dir, tokenizer, config.max_seq_length, config.test_batch_size, "test", label_list)
-    #
-    # # 加载模型
-    # bert_config = BertConfig(output_config_file)
-    #
-    # if config.model_name == 'BertLSTM':
-    #     from model.bert.BertLSTM import BertLSTM
-    #     model = BertLSTM(bert_config, num_labels, config.hidden_size,
-    #                      config.num_layers, config.bidirectional, config.dropout)
-    #
-    # model.load_state_dict(torch.load(output_model_file))
-    # model.to(device)
-    #
-    # # 损失函数准备
-    # criterion = nn.CrossEntropyLoss()
-    # criterion = criterion.to(device)
-    #
-    # # test the model
-    # test_loss, test_acc, test_report, test_auc, all_idx, all_labels, all_preds = evaluate_save(
-    #     model, test_dataloader, criterion, device, label_list)
-    # print("-------------- Test -------------")
-    # print(f'\t  Loss: {test_loss: .3f} | Acc: {test_acc * 100: .3f} % | AUC:{test_auc}')
-    #
-    # for label in label_list:
-    #     print('\t {}: Precision: {} | recall: {} | f1 score: {}'.format(
-    #         label, test_report[label]['precision'], test_report[label]['recall'], test_report[label]['f1-score']))
-    # print_list = ['macro avg', 'weighted avg']
-    #
-    # for label in print_list:
-    #     print('\t {}: Precision: {} | recall: {} | f1 score: {}'.format(
-    #         label, test_report[label]['precision'], test_report[label]['recall'], test_report[label]['f1-score']))
+
+    # test 数据
+    test_dataloader, _ = load_data(
+        config.data_dir, tokenizer, config.max_seq_length, config.test_batch_size, "test", label_list)
+
+    # 加载模型
+    dec = Decoder(300, output_vocab.n_words, config.hidden_dim, config.dec_layers,
+                  config.dec_heads, config.dec_pf_dim, config.dec_dropout, device,
+                  embedding = trg_embedding, trg_pad_idx = TRG_PAD_IDX, enc_out_dim = config.bert_hid_dim * 2)
+    share_enc = BertLayer.from_pretrained(config.bert_model_dir, cache_dir = config.cache_dir)
+    norm_enc = BertLayer.from_pretrained(config.bert_model_dir, cache_dir = config.cache_dir)
+    class_enc = BertLayer.from_pretrained(config.bert_model_dir, cache_dir = config.cache_dir)
+    classification = Classification(config.bert_hid_dim * 2, config.num_class)
+
+    model = MultiTask(share_enc, norm_enc, class_enc, dec, classification,
+                      device, config.bert_hid_dim)
+
+    model.load_state_dict(torch.load(output_model_file))
+    model.to(device)
+
+    # 损失函数准备
+    criterion = nn.CrossEntropyLoss()
+    criterion = criterion.to(device)
+
+    # test the model
+    class_valid_loss, pred_label, gold_label, _ = evaluate(model, class_fb_test, criterion, device,
+                                                           label_list, data_type = 'class', adv_weight = 0.05,
+                                                           diff_weight = 0.01)
+    print(f'Facebook result:\n, {classification_report(gold_label, pred_label, digits=4)}')
+
+    class_valid_loss, pred_label, gold_label, _ = evaluate(model, class_tw_test, criterion, device,
+                                                           label_list, data_type = 'class', adv_weight = 0.05,
+                                                           diff_weight = 0.01)
+    print(f'Twitter result:\n, {classification_report(gold_label, pred_label, digits=4)}')
