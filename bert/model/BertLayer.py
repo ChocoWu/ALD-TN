@@ -1,11 +1,9 @@
-from pytorch_pretrained_bert.modeling import BertModel, BertPreTrainedModel
+from pytorch_transformers.modeling_bert import BertModel, BertPreTrainedModel
 
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
-
-from pytorch_pretrained_bert.modeling import BertModel, BertPreTrainedModel
 
 
 class BertLayer(BertPreTrainedModel):
