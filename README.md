@@ -20,8 +20,8 @@ python multi_task_test.py
 ### data preparing
 To get prepared data run:
 ```angular2html
-cd transformer/util
-python data_processing
+cd transformer
+python create_data.py
 ```
 ### Training
 ```angular2html
