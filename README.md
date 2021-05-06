@@ -1,5 +1,5 @@
 # ALD-TN
-Aggressice Language detection with Joint Text Normalization
+Aggressice Language detection with Joint Text Normalization.
 This repository implements the dependency parser described in the paper [Aggressive Language Detection with Joint Text Normalization via Adversarial Multi-task Learning](https://arxiv.org/pdf/2009.09174.pdf)
 
 # Model
