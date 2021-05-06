@@ -1,5 +1,6 @@
 # ALD-TN
 Aggressice Language detection with Joint Text Normalization
+This repository implements the dependency parser described in the paper [Aggressive Language Detection with Joint Text Normalization via Adversarial Multi-task Learning](https://arxiv.org/pdf/2009.09174.pdf)
 
 # Model
 ## bilstm
@@ -38,4 +39,18 @@ We need to get dictionary file firstly, please refer to 'transformer'
 ```angular2html
 cd bert 
 python run_task6.py
+```
+## Reference
+
+Please kindly cite this paper in your publications if it helps your research:
+
+```
+@inproceedings{wu2020aggressive,
+  title={Aggressive Language Detection with Joint Text Normalization via Adversarial Multi-task Learning},
+  author={Wu, Shengqiong and Fei, Hao and Ji, Donghong},
+  booktitle={CCF International Conference on Natural Language Processing and Chinese Computing},
+  pages={683--696},
+  year={2020},
+  organization={Springer}
+}
 ```
